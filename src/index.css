@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top), 1rem);
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+  }
+  .min-h-header {
+    min-height: calc(env(safe-area-inset-top) + 4rem);
+  }
+}
