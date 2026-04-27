@@ -4,19 +4,22 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Calendar, LayoutTemplate, Users, MapPin, Clock, LogOut, Settings, MessageSquare, Bike, ArrowLeft, X, ChevronDown } from 'lucide-react';
+import { Calendar, LayoutTemplate, Users, MapPin, Clock, LogOut, Settings, MessageSquare, Bike, ArrowLeft, X, ChevronDown, UserSquare } from 'lucide-react';
 import Login from './components/Login';
 import AdminPanel from './components/AdminPanel';
 import Chat from './components/Chat';
+import Dashboard from './components/Dashboard';
+import Profile from './components/Profile';
+import DirectMessages from './components/DirectMessages';
 import { fetchFromGas, gasAuth } from './services/gasService';
 
-type ViewMode = 'calendar' | 'admin' | 'chat';
+type ViewMode = 'calendar' | 'admin' | 'chat' | 'dashboard' | 'profile' | 'dms';
 
 const TOWNS = ['Huntertown', 'Auburn', 'Garrett', 'Fort Wayne'];
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(gasAuth.isAuthenticated());
-  const [view, setView] = useState<ViewMode>('calendar');
+  const [view, setView] = useState<ViewMode>('dashboard');
   const [userRole, setUserRole] = useState<string>('user');
   const [activeTown, setActiveTown] = useState<string | null>(gasAuth.getActiveTown());
   const [userTowns, setUserTowns] = useState<string[]>(gasAuth.getTowns());
@@ -91,7 +94,10 @@ export default function App() {
       loadData().finally(() => {
         setIsLoadingEvents(false);
       });
-      interval = setInterval(loadData, 3000);
+      interval = setInterval(() => {
+        loadData();
+        fetchFromGas('heartbeat').catch(() => {});
+      }, 5000);
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -183,6 +189,9 @@ export default function App() {
 
         <nav className="flex-1 px-4 py-4 space-y-1.5 overflow-y-auto">
           <div className="px-3 pb-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Navigation</div>
+          <button onClick={() => setView('dashboard')} className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${view === 'dashboard' ? 'bg-cyan-900/20 text-cyan-400 font-medium' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'}`}>
+            <LayoutTemplate className="w-5 h-5" /> <span>Dashboard</span>
+          </button>
           <button onClick={() => setView('calendar')} className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${view === 'calendar' ? 'bg-cyan-900/20 text-cyan-400 font-medium' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'}`}>
             <Calendar className="w-5 h-5" /> <span>Event Board</span>
             {unreadEventsCount > 0 && <span className="absolute right-3 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unreadEventsCount}</span>}
@@ -190,6 +199,12 @@ export default function App() {
           <button onClick={() => setView('chat')} className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${view === 'chat' ? 'bg-cyan-900/20 text-cyan-400 font-medium' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'}`}>
             <MessageSquare className="w-5 h-5" /> <span>Messaging</span>
             {unreadMessagesCount > 0 && <span className="absolute right-3 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unreadMessagesCount}</span>}
+          </button>
+          <button onClick={() => setView('dms')} className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${view === 'dms' ? 'bg-cyan-900/20 text-cyan-400 font-medium' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'}`}>
+            <Users className="w-5 h-5" /> <span>Direct Messages</span>
+          </button>
+          <button onClick={() => setView('profile')} className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${view === 'profile' ? 'bg-cyan-900/20 text-cyan-400 font-medium' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'}`}>
+            <UserSquare className="w-5 h-5" /> <span>Profile</span>
           </button>
         </nav>
 
@@ -230,6 +245,16 @@ export default function App() {
           <main className="flex-1 flex flex-col h-full overflow-hidden">
             <Chat onBack={() => setView('calendar')} key={activeTown} messages={messages} isLoading={isLoadingEvents} onRefresh={loadData} />
           </main>
+        ) : view === 'dms' ? (
+          <main className="flex-1 flex flex-col h-full overflow-hidden">
+            <DirectMessages onBack={() => setView('dashboard')} />
+          </main>
+        ) : view === 'profile' ? (
+          <main className="flex-1 flex flex-col h-full overflow-hidden">
+            <Profile onBack={() => setView('dashboard')} />
+          </main>
+        ) : view === 'dashboard' ? (
+          <Dashboard events={events} onViewEvents={() => setView('calendar')} />
         ) : (
           <div className="flex-1 flex overflow-hidden">
             <main className="flex-1 flex flex-col h-full bg-neutral-950 overflow-y-auto">
@@ -358,6 +383,23 @@ export default function App() {
                     </p>
                   </div>
 
+                  <div className="pt-4 border-t border-neutral-800">
+                    <div className="text-sm font-medium text-neutral-300 mb-3 flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-neutral-400" /> Event Map
+                    </div>
+                    <div className="w-full h-48 bg-neutral-900 rounded-xl overflow-hidden border border-neutral-800 relative z-0">
+                      <iframe
+                        width="100%"
+                        height="100%"
+                        style={{ border: 0 }}
+                        loading="lazy"
+                        allowFullScreen
+                        referrerPolicy="no-referrer-when-downgrade"
+                        src={`https://maps.google.com/maps?q=${encodeURIComponent(selectedEvent.location || selectedEvent.town)}&t=&z=13&ie=UTF8&iwloc=&output=embed`}
+                      ></iframe>
+                    </div>
+                  </div>
+
                   {selectedEvent.attendees && selectedEvent.attendees.length > 0 && (
                     <div className="pt-4 border-t border-neutral-800">
                       <div className="text-sm font-medium text-neutral-300 mb-3 flex items-center gap-2">
@@ -405,6 +447,13 @@ export default function App() {
         {/* Mobile Bottom Navigation */}
         <nav className="md:hidden flex items-center justify-around bg-neutral-950 border-t border-neutral-800 pb-safe w-full z-20 shrink-0">
           <button 
+            onClick={() => setView('dashboard')} 
+            className={`flex flex-col items-center gap-1 p-3 w-full ${view === 'dashboard' ? 'text-cyan-400' : 'text-neutral-500'}`}
+          >
+            <LayoutTemplate className="w-5 h-5" />
+            <span className="text-[10px] font-medium hidden sm:block">Dashboard</span>
+          </button>
+          <button 
             onClick={() => setView('calendar')} 
             className={`relative flex flex-col items-center gap-1 p-3 w-full ${view === 'calendar' ? 'text-cyan-400' : 'text-neutral-500'}`}
           >
@@ -412,7 +461,7 @@ export default function App() {
               <Calendar className="w-5 h-5" />
               {unreadEventsCount > 0 && <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[8px] font-bold px-1 min-w-[14px] text-center rounded-full border border-neutral-950">{unreadEventsCount}</span>}
             </div>
-            <span className="text-[10px] font-medium">Events</span>
+            <span className="text-[10px] font-medium hidden sm:block">Events</span>
           </button>
           <button 
             onClick={() => setView('chat')} 
@@ -422,15 +471,34 @@ export default function App() {
               <MessageSquare className="w-5 h-5" />
               {unreadMessagesCount > 0 && <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[8px] font-bold px-1 min-w-[14px] text-center rounded-full border border-neutral-950">{unreadMessagesCount}</span>}
             </div>
-            <span className="text-[10px] font-medium">Chat</span>
+            <span className="text-[10px] font-medium hidden sm:block">Chat</span>
           </button>
+          
           <button 
-            onClick={() => setView('admin')} 
-            className={`flex flex-col items-center gap-1 p-3 w-full ${view === 'admin' ? 'text-cyan-400' : 'text-neutral-500'}`}
+            onClick={() => setView('dms')} 
+            className={`relative flex flex-col items-center gap-1 p-3 w-full ${view === 'dms' ? 'text-cyan-400' : 'text-neutral-500'}`}
           >
-            <Settings className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Admin</span>
+            <Users className="w-5 h-5" />
+            <span className="text-[10px] font-medium hidden sm:block">DMs</span>
           </button>
+
+          <button 
+            onClick={() => setView('profile')} 
+            className={`relative flex flex-col items-center gap-1 p-3 w-full ${view === 'profile' ? 'text-cyan-400' : 'text-neutral-500'}`}
+          >
+            <UserSquare className="w-5 h-5" />
+            <span className="text-[10px] font-medium hidden sm:block">Profile</span>
+          </button>
+
+          {userRole === 'admin' && (
+            <button 
+              onClick={() => setView('admin')} 
+              className={`flex flex-col items-center gap-1 p-3 w-full ${view === 'admin' ? 'text-purple-400' : 'text-neutral-500'}`}
+            >
+              <Settings className="w-5 h-5" />
+              <span className="text-[10px] font-medium hidden sm:block">Admin</span>
+            </button>
+          )}
         </nav>
 
         {/* Mobile Event Details Overlay */}
@@ -476,6 +544,23 @@ export default function App() {
                 <p className="text-sm text-neutral-500 leading-relaxed whitespace-pre-wrap">
                   {selectedEvent.description}
                 </p>
+              </div>
+
+              <div className="pt-4 border-t border-neutral-800">
+                <div className="text-sm font-medium text-neutral-300 mb-3 flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-neutral-400" /> Event Map
+                </div>
+                <div className="w-full h-48 bg-neutral-900 rounded-xl overflow-hidden border border-neutral-800 relative z-0">
+                  <iframe
+                    width="100%"
+                    height="100%"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={`https://maps.google.com/maps?q=${encodeURIComponent(selectedEvent.location || selectedEvent.town)}&t=&z=13&ie=UTF8&iwloc=&output=embed`}
+                  ></iframe>
+                </div>
               </div>
 
               {selectedEvent.attendees && selectedEvent.attendees.length > 0 && (

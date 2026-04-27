@@ -9,6 +9,7 @@ const SHEETS = {
   SESSIONS: "Sessions",
   SETTINGS: "Settings",
   MESSAGES: "Messages",
+  DIRECT_MESSAGES: "DirectMessages"
 };
 
 function getDb() {
@@ -39,7 +40,7 @@ function setupSheets() {
 
   if (!ss.getSheetByName(SHEETS.USERS)) {
     const sheet = ss.insertSheet(SHEETS.USERS);
-    sheet.appendRow(["id", "fullName", "password", "role", "createdAt"]);
+    sheet.appendRow(["id", "fullName", "password", "role", "createdAt", "towns", "lastSeen"]);
     sheet.setFrozenRows(1);
   }
 
@@ -80,6 +81,12 @@ function setupSheets() {
   if (!ss.getSheetByName(SHEETS.MESSAGES)) {
     const sheet = ss.insertSheet(SHEETS.MESSAGES);
     sheet.appendRow(["id", "userId", "fullName", "text", "timestamp"]);
+    sheet.setFrozenRows(1);
+  }
+
+  if (!ss.getSheetByName(SHEETS.DIRECT_MESSAGES)) {
+    const sheet = ss.insertSheet(SHEETS.DIRECT_MESSAGES);
+    sheet.appendRow(["id", "fromUserId", "toUserId", "text", "timestamp"]);
     sheet.setFrozenRows(1);
   }
   return ss;
@@ -158,6 +165,18 @@ function doPost(e) {
         break;
       case "sendMessage":
         data = sendMessage(payload.text, userId, String(payload.fullName), town);
+        break;
+      case "updateProfile":
+        data = updateProfile(userId, payload.fullName);
+        break;
+      case "heartbeat":
+        data = updateHeartbeat(userId);
+        break;
+      case "getDirectMessages":
+        data = getDirectMessages(userId, payload.targetUserId);
+        break;
+      case "sendDirectMessage":
+        data = sendDirectMessage(userId, payload.targetUserId, payload.text);
         break;
       default:
         throw new Error("Unknown action: " + action);
@@ -441,11 +460,39 @@ function getMembers(town) {
   for (let i = 1; i < data.length; i++) {
     let townsObj = [];
     try { townsObj = JSON.parse(data[i][5] || '[]'); } catch (e) {}
-    if (town && !townsObj.includes(town) && townsObj.length > 0) continue; // For backward compatibility, if towns array is empty, include them for now? Better to filter strictly:
-    if (town && !townsObj.includes(town) && data[i][5]) continue; // If empty, let them be in all or none? Let's just exclude if not in towns. Actually, existing users might not have town, so maybe include them everywhere if they have no towns.
-    members.push({ id: data[i][0], fullName: data[i][1], role: data[i][3], towns: townsObj });
+    if (town && !townsObj.includes(town) && townsObj.length > 0) continue; 
+    if (town && !townsObj.includes(town) && data[i][5]) continue; 
+    members.push({ id: data[i][0], fullName: data[i][1], role: data[i][3], towns: townsObj, lastSeen: data[i][6] });
   }
   return members;
+}
+
+function updateProfile(userId, fullName) {
+  const ss = getDb();
+  const sheet = ss.getSheetByName(SHEETS.USERS);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === userId) {
+      sheet.getRange(i + 1, 2).setValue(fullName);
+      return { success: true, fullName };
+    }
+  }
+  throw new Error("User not found");
+}
+
+function updateHeartbeat(userId) {
+  const ss = getDb();
+  const sheet = ss.getSheetByName(SHEETS.USERS);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === userId) {
+      sheet.getRange(i + 1, 7).setValue(new Date().toISOString());
+      return { success: true };
+    }
+  }
+  return { success: false };
 }
 
 function getUserRole(userId) {
@@ -506,6 +553,56 @@ function sendMessage(text, userId, fullName, town) {
 
     const newId = generateId();
     sheet.appendRow([newId, userId, fullName, text, new Date().toISOString(), town]);
+    SpreadsheetApp.flush();
+    return { id: newId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getDirectMessages(userId1, userId2) {
+  const ss = getDb();
+  let sheet = ss.getSheetByName(SHEETS.DIRECT_MESSAGES);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEETS.DIRECT_MESSAGES);
+    sheet.appendRow(["id", "fromUserId", "toUserId", "text", "timestamp"]);
+    sheet.setFrozenRows(1);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const messages = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const fromId = data[i][1];
+    const toId = data[i][2];
+    if ((fromId === userId1 && toId === userId2) || (fromId === userId2 && toId === userId1)) {
+      messages.push({
+        id: data[i][0],
+        fromUserId: fromId,
+        toUserId: toId,
+        text: data[i][3],
+        timestamp: data[i][4] instanceof Date ? data[i][4].toISOString() : String(data[i][4])
+      });
+    }
+  }
+  return messages;
+}
+
+function sendDirectMessage(userId, targetUserId, text) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName(SHEETS.DIRECT_MESSAGES);
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEETS.DIRECT_MESSAGES);
+      sheet.appendRow(["id", "fromUserId", "toUserId", "text", "timestamp"]);
+      sheet.setFrozenRows(1);
+    }
+
+    const newId = generateId();
+    sheet.appendRow([newId, userId, targetUserId, text, new Date().toISOString()]);
     SpreadsheetApp.flush();
     return { id: newId };
   } finally {
