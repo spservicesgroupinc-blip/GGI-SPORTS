@@ -175,8 +175,14 @@ function doPost(e) {
       case "getDirectMessages":
         data = getDirectMessages(userId, payload.targetUserId);
         break;
+      case "getAllDirectMessages":
+        data = getAllDirectMessages(userId);
+        break;
       case "sendDirectMessage":
         data = sendDirectMessage(userId, payload.targetUserId, payload.text);
+        break;
+      case "pollData":
+        data = pollData(userId, town);
         break;
       default:
         throw new Error("Unknown action: " + action);
@@ -586,6 +592,44 @@ function getDirectMessages(userId1, userId2) {
     }
   }
   return messages;
+}
+
+function getAllDirectMessages(userId) {
+  const ss = getDb();
+  let sheet = ss.getSheetByName(SHEETS.DIRECT_MESSAGES);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEETS.DIRECT_MESSAGES);
+    sheet.appendRow(["id", "fromUserId", "toUserId", "text", "timestamp"]);
+    sheet.setFrozenRows(1);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const messages = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const fromId = data[i][1];
+    const toId = data[i][2];
+    if (fromId === userId || toId === userId) {
+      messages.push({
+        id: data[i][0],
+        fromUserId: fromId,
+        toUserId: toId,
+        text: data[i][3],
+        timestamp: data[i][4] instanceof Date ? data[i][4].toISOString() : String(data[i][4])
+      });
+    }
+  }
+  return messages;
+}
+
+function pollData(userId, town) {
+  updateHeartbeat(userId);
+  return {
+    events: getEvents(town),
+    messages: getMessages(town),
+    directMessages: getAllDirectMessages(userId),
+    members: getMembers(town)
+  };
 }
 
 function sendDirectMessage(userId, targetUserId, text) {

@@ -2,17 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { Send, ArrowLeft, Users, Circle, Clock } from 'lucide-react';
 import { gasAuth, fetchFromGas } from '../services/gasService';
 
-interface DirectMessagesProps {
-  onBack?: () => void;
-}
-
-interface Member {
+export interface Member {
   id: string;
   fullName: string;
   lastSeen?: string;
+  towns?: string[];
+  role?: string;
 }
 
-interface DM {
+export interface DM {
   id: string;
   fromUserId: string;
   toUserId: string;
@@ -20,45 +18,43 @@ interface DM {
   timestamp: string;
 }
 
-export default function DirectMessages({ onBack }: DirectMessagesProps) {
-  const [members, setMembers] = useState<Member[]>([]);
+interface DirectMessagesProps {
+  onBack?: () => void;
+  directMessages: DM[];
+  members: Member[];
+}
+
+export default function DirectMessages({ onBack, directMessages, members }: DirectMessagesProps) {
   const [selectedUser, setSelectedUser] = useState<Member | null>(null);
-  const [messages, setMessages] = useState<DM[]>([]);
   const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [optimisticDMs, setOptimisticDMs] = useState<DM[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const currentUserId = gasAuth.getUserId();
 
-  const loadData = async () => {
-    try {
-      const activeTown = gasAuth.getActiveTown();
-      // Also update heartbeat
-      await fetchFromGas('heartbeat');
-      const membersData = await fetchFromGas('getMembers', { town: activeTown });
-      setMembers(membersData?.filter((m: Member) => m.id !== currentUserId) || []);
-      
-      if (selectedUser) {
-        const dms = await fetchFromGas('getDirectMessages', { targetUserId: selectedUser.id });
-        setMessages(dms || []);
-      }
-    } catch (err) {
-      console.error('Failed to load DMs or members:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const filteredMembers = members.filter(m => m.id !== currentUserId);
+
+  const activeMessages = selectedUser 
+    ? [...directMessages, ...optimisticDMs].filter(m => 
+        (m.fromUserId === currentUserId && m.toUserId === selectedUser.id) ||
+        (m.fromUserId === selectedUser.id && m.toUserId === currentUserId)
+      ).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    : [];
+
+  // Deduplicate by ID
+  const uniqueMessages = Array.from(new Map(activeMessages.map(m => [m.id, m])).values());
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 3000);
-    return () => clearInterval(interval);
-  }, [selectedUser]);
+    // Clear optimistic DMs once they appear in the real list
+    if (directMessages.length > 0) {
+      setOptimisticDMs(prev => prev.filter(optMsg => !directMessages.some(m => m.id === optMsg.id || m.text === optMsg.text && m.fromUserId === optMsg.fromUserId && new Date(m.timestamp).getTime() - new Date(optMsg.timestamp).getTime() < 5000)));
+    }
+  }, [directMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, selectedUser]);
+  }, [uniqueMessages, selectedUser]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,11 +64,23 @@ export default function DirectMessages({ onBack }: DirectMessagesProps) {
     setInputText('');
     setIsSending(true);
 
+    const tempId = 'temp-' + Date.now();
+    const tempMsg: DM = {
+      id: tempId,
+      fromUserId: currentUserId,
+      toUserId: selectedUser.id,
+      text: textToSend,
+      timestamp: new Date().toISOString()
+    };
+    
+    setOptimisticDMs(prev => [...prev, tempMsg]);
+
     try {
       await fetchFromGas('sendDirectMessage', { targetUserId: selectedUser.id, text: textToSend });
-      await loadData();
     } catch (err) {
       console.error('Failed to send DM:', err);
+      // Remove optimistic update
+      setOptimisticDMs(prev => prev.filter(m => m.id !== tempId));
       setInputText(textToSend); // Put back on failure
     } finally {
       setIsSending(false);
@@ -106,18 +114,13 @@ export default function DirectMessages({ onBack }: DirectMessagesProps) {
         </header>
         
         <div className="flex-1 overflow-y-auto p-4 md:px-8 space-y-4">
-          {isLoading && messages.length === 0 ? (
-             <div className="flex items-center justify-center h-full text-neutral-500 gap-2">
-               <div className="w-4 h-4 rounded-full border-2 border-cyan-500/30 border-t-cyan-500 animate-spin"></div>
-               Loading messages...
-             </div>
-          ) : messages.length === 0 ? (
+          {uniqueMessages.length === 0 ? (
             <div className="flex flex-col items-center gap-2 mt-8 opacity-50 p-6 bg-neutral-900 border border-neutral-800 rounded-2xl mx-auto max-w-sm text-center">
               <Users className="w-8 h-8 text-neutral-500" />
               <p className="text-sm font-medium text-neutral-400">No messages yet. Send a message to start the conversation!</p>
             </div>
           ) : (
-            messages.map((msg) => {
+            uniqueMessages.map((msg) => {
               const isMine = msg.fromUserId === currentUserId;
               return (
                 <div key={msg.id} className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[85%] ${isMine ? 'ml-auto' : 'mr-auto'}`}>
@@ -174,10 +177,10 @@ export default function DirectMessages({ onBack }: DirectMessagesProps) {
       </header>
       
       <div className="flex-1 overflow-y-auto p-4 md:px-8 space-y-2">
-        {members.length === 0 && !isLoading ? (
+        {filteredMembers.length === 0 ? (
           <div className="text-center text-neutral-500 mt-8">No other members found in your town.</div>
         ) : (
-          members.map(member => (
+          filteredMembers.map(member => (
             <button 
               key={member.id} 
               onClick={() => setSelectedUser(member)}

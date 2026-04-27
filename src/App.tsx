@@ -27,6 +27,8 @@ export default function App() {
   
   const [events, setEvents] = useState<any[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
+  const [directMessages, setDirectMessages] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [selectedEventUrlId, setSelectedEventUrlId] = useState<string | null>(null);
   const [registeringEventId, setRegisteringEventId] = useState<string | null>(null);
@@ -39,6 +41,10 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('seenMessageIds') || '[]'); } catch { return []; }
   });
 
+  const [seenDirectMessageIds, setSeenDirectMessageIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('seenDirectMessageIds') || '[]'); } catch { return []; }
+  });
+
   useEffect(() => {
     localStorage.setItem('seenEventIds', JSON.stringify(seenEventIds));
   }, [seenEventIds]);
@@ -46,6 +52,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('seenMessageIds', JSON.stringify(seenMessageIds));
   }, [seenMessageIds]);
+
+  useEffect(() => {
+    localStorage.setItem('seenDirectMessageIds', JSON.stringify(seenDirectMessageIds));
+  }, [seenDirectMessageIds]);
 
   useEffect(() => {
     if (view === 'calendar' && events.length > 0) {
@@ -66,6 +76,16 @@ export default function App() {
   }, [view, messages]);
 
   useEffect(() => {
+    if (view === 'dms' && directMessages.length > 0) {
+      setSeenDirectMessageIds(prev => {
+        const userId = gasAuth.getUserId();
+        const newIds = directMessages.filter(m => m.toUserId === userId).map(m => m.id).filter(id => !prev.includes(id));
+        return newIds.length > 0 ? [...prev, ...newIds] : prev;
+      });
+    }
+  }, [view, directMessages]);
+
+  useEffect(() => {
     const handleUnauthorized = () => setIsAuthenticated(false);
     window.addEventListener('gas-unauthorized', handleUnauthorized);
     return () => window.removeEventListener('gas-unauthorized', handleUnauthorized);
@@ -74,16 +94,15 @@ export default function App() {
   const loadData = async () => {
     if (!isAuthenticated || !activeTown) return;
     try {
-      const evts = await fetchFromGas('getEvents');
-      setEvents(evts || []);
+      const data = await fetchFromGas('pollData', { town: activeTown });
+      if (data) {
+        setEvents(data.events || []);
+        setMessages(data.messages || []);
+        setDirectMessages(data.directMessages || []);
+        setMembers(data.members || []);
+      }
     } catch (err) {
-      console.error('Failed to load events:', err);
-    }
-    try {
-      const msgs = await fetchFromGas('getMessages');
-      setMessages(msgs || []);
-    } catch (err) {
-      console.error('Failed to load messages:', err);
+      console.error('Failed to poll data:', err);
     }
   };
 
@@ -96,8 +115,7 @@ export default function App() {
       });
       interval = setInterval(() => {
         loadData();
-        fetchFromGas('heartbeat').catch(() => {});
-      }, 5000);
+      }, 2000);
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -119,6 +137,7 @@ export default function App() {
 
   const unreadEventsCount = events.filter(e => !seenEventIds.includes(e.id)).length;
   const unreadMessagesCount = messages.filter(m => !seenMessageIds.includes(m.id)).length;
+  const unreadDirectMessagesCount = directMessages.filter(m => m.toUserId === gasAuth.getUserId() && !seenDirectMessageIds.includes(m.id)).length;
 
   const handleLoginSuccess = (role?: string) => {
     setIsAuthenticated(true);
@@ -202,6 +221,7 @@ export default function App() {
           </button>
           <button onClick={() => setView('dms')} className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${view === 'dms' ? 'bg-cyan-900/20 text-cyan-400 font-medium' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'}`}>
             <Users className="w-5 h-5" /> <span>Direct Messages</span>
+            {unreadDirectMessagesCount > 0 && <span className="absolute right-3 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unreadDirectMessagesCount}</span>}
           </button>
           <button onClick={() => setView('profile')} className={`relative flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${view === 'profile' ? 'bg-cyan-900/20 text-cyan-400 font-medium' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'}`}>
             <UserSquare className="w-5 h-5" /> <span>Profile</span>
@@ -247,7 +267,7 @@ export default function App() {
           </main>
         ) : view === 'dms' ? (
           <main className="flex-1 flex flex-col h-full overflow-hidden">
-            <DirectMessages onBack={() => setView('dashboard')} />
+            <DirectMessages onBack={() => setView('dashboard')} directMessages={directMessages} members={members} />
           </main>
         ) : view === 'profile' ? (
           <main className="flex-1 flex flex-col h-full overflow-hidden">
@@ -478,7 +498,10 @@ export default function App() {
             onClick={() => setView('dms')} 
             className={`relative flex flex-col items-center gap-1 p-3 w-full ${view === 'dms' ? 'text-cyan-400' : 'text-neutral-500'}`}
           >
-            <Users className="w-5 h-5" />
+            <div className="relative">
+              <Users className="w-5 h-5" />
+              {unreadDirectMessagesCount > 0 && <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[8px] font-bold px-1 min-w-[14px] text-center rounded-full border border-neutral-950">{unreadDirectMessagesCount}</span>}
+            </div>
             <span className="text-[10px] font-medium hidden sm:block">DMs</span>
           </button>
 
