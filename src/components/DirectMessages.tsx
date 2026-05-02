@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Send, ArrowLeft, Users, Circle, Clock } from 'lucide-react';
 import { gasAuth, fetchFromGas } from '../services/gasService';
 
@@ -22,9 +22,11 @@ interface DirectMessagesProps {
   onBack?: () => void;
   directMessages: DM[];
   members: Member[];
+  markDMsAsSeen: (userId: string) => void;
+  seenMessageIds: string[];
 }
 
-export default function DirectMessages({ onBack, directMessages, members }: DirectMessagesProps) {
+export default function DirectMessages({ onBack, directMessages, members, markDMsAsSeen, seenMessageIds }: DirectMessagesProps) {
   const [selectedUser, setSelectedUser] = useState<Member | null>(null);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -35,6 +37,14 @@ export default function DirectMessages({ onBack, directMessages, members }: Dire
 
   const filteredMembers = members.filter(m => m.id !== currentUserId);
 
+  const sortedMembers = [...filteredMembers].sort((a, b) => {
+      const aMessages = directMessages.filter(m => (m.fromUserId === a.id || m.toUserId === a.id));
+      const bMessages = directMessages.filter(m => (m.fromUserId === b.id || m.toUserId === b.id));
+      const aLatest = aMessages.length > 0 ? new Date(aMessages[aMessages.length - 1].timestamp).getTime() : 0;
+      const bLatest = bMessages.length > 0 ? new Date(bMessages[bMessages.length - 1].timestamp).getTime() : 0;
+      return bLatest - aLatest;
+  });
+
   const activeMessages = selectedUser 
     ? [...directMessages, ...optimisticDMs].filter(m => 
         (m.fromUserId === currentUserId && m.toUserId === selectedUser.id) ||
@@ -44,6 +54,12 @@ export default function DirectMessages({ onBack, directMessages, members }: Dire
 
   // Deduplicate by ID
   const uniqueMessages = Array.from(new Map(activeMessages.map(m => [m.id, m])).values());
+
+  useEffect(() => {
+    if (selectedUser) {
+      markDMsAsSeen(selectedUser.id);
+    }
+  }, [selectedUser, directMessages, markDMsAsSeen]);
 
   useEffect(() => {
     // Clear optimistic DMs once they appear in the real list
@@ -142,7 +158,7 @@ export default function DirectMessages({ onBack, directMessages, members }: Dire
           <div ref={messagesEndRef} className="h-4" />
         </div>
 
-        <div className="p-4 bg-neutral-950 border-t border-neutral-800 pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 z-10 w-full">
+        <div className="p-4 bg-neutral-900 border-t border-neutral-800 shrink-0 z-10 w-full">
           <form onSubmit={handleSend} className="flex gap-2 max-w-5xl mx-auto">
             <input
               type="text"
@@ -177,31 +193,51 @@ export default function DirectMessages({ onBack, directMessages, members }: Dire
       </header>
       
       <div className="flex-1 overflow-y-auto p-4 md:px-8 space-y-2">
-        {filteredMembers.length === 0 ? (
+        {sortedMembers.length === 0 ? (
           <div className="text-center text-neutral-500 mt-8">No other members found in your town.</div>
         ) : (
-          filteredMembers.map(member => (
-            <button 
-              key={member.id} 
-              onClick={() => setSelectedUser(member)}
-              className="w-full text-left bg-neutral-900/50 hover:bg-neutral-800/80 border border-neutral-800/80 rounded-xl p-4 flex items-center gap-4 transition-colors"
-            >
-              <div className="w-12 h-12 bg-cyan-900/40 text-cyan-500 rounded-full flex items-center justify-center text-lg font-bold uppercase shrink-0">
-                {member.fullName.substring(0, 2)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-white font-semibold flex items-center gap-2">
-                  <span className="truncate">{member.fullName}</span>
+          sortedMembers.map(member => {
+            const unreadCount = directMessages.filter(m => m.fromUserId === member.id && m.toUserId === currentUserId && !seenMessageIds.includes(m.id)).length;
+            const messagesWithUser = directMessages.filter(m => m.fromUserId === member.id || m.toUserId === member.id);
+            const lastMessage = messagesWithUser.length > 0 ? messagesWithUser[messagesWithUser.length - 1] : null;
+
+            return (
+              <button 
+                key={member.id} 
+                onClick={() => setSelectedUser(member)}
+                className="w-full text-left bg-neutral-900/50 hover:bg-neutral-800/80 border border-neutral-800/80 rounded-xl p-4 flex items-center gap-4 transition-colors"
+              >
+                <div className="relative shrink-0">
+                  <div className="w-12 h-12 bg-cyan-900/40 text-cyan-500 rounded-full flex items-center justify-center text-lg font-bold uppercase">
+                    {member.fullName.substring(0, 2)}
+                  </div>
                   {isOnline(member.lastSeen) && (
-                    <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-full border border-emerald-500/20">Online</span>
+                    <div className="absolute bottom-0.5 right-0.5 w-3 h-3 bg-emerald-500 border-2 border-neutral-900 rounded-full"></div>
                   )}
                 </div>
-                <div className="text-xs text-neutral-500 mt-1">
-                  {isOnline(member.lastSeen) ? 'Active now' : member.lastSeen ? `Last seen ${new Date(member.lastSeen).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}` : 'Offline'}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-white font-semibold truncate">{member.fullName}</span>
+                    {lastMessage && (
+                      <span className="text-[10px] text-neutral-500 shrink-0">
+                        {new Date(lastMessage.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-sm text-neutral-400">
+                    <span className="truncate">
+                      {lastMessage ? (lastMessage.fromUserId === currentUserId ? 'You: ' : '') + lastMessage.text : 'No messages yet'}
+                    </span>
+                    {unreadCount > 0 && (
+                      <span className="bg-red-500 text-white min-w-[18px] h-[18px] text-[10px] font-bold rounded-full flex items-center justify-center px-1 shrink-0">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </button>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
     </div>
