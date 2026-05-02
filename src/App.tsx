@@ -147,7 +147,7 @@ export default function App() {
       });
       interval = setInterval(() => {
         loadData();
-      }, 2000);
+      }, 15000);
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -476,7 +476,11 @@ export default function App() {
                   )}
 
                   <div className="mt-auto pt-6">
-                    {selectedEvent.currentRegistrations >= selectedEvent.capacity ? (
+                    {selectedEvent.attendees?.includes(gasAuth.getFullName()) ? (
+                      <button disabled className="w-full py-3 bg-indigo-900/40 text-indigo-400 border border-indigo-500/30 rounded-xl text-sm font-bold cursor-not-allowed flex items-center justify-center gap-2">
+                        <Calendar className="w-4 h-4" /> You're Going!
+                      </button>
+                    ) : selectedEvent.currentRegistrations >= selectedEvent.capacity ? (
                       <button disabled className="w-full py-3 bg-slate-800 text-slate-500 rounded-xl text-sm font-semibold cursor-not-allowed">
                         Event is Full
                       </button>
@@ -639,7 +643,11 @@ export default function App() {
             </div>
 
             <div className="p-4 bg-slate-950 border-t border-slate-800 shrink-0 pb-safe">
-              {selectedEvent.currentRegistrations >= selectedEvent.capacity ? (
+              {selectedEvent.attendees?.includes(gasAuth.getFullName()) ? (
+                <button disabled className="w-full py-3.5 bg-indigo-900/40 text-indigo-400 border border-indigo-500/30 rounded-xl text-sm font-bold cursor-not-allowed flex items-center justify-center gap-2">
+                  <Calendar className="w-5 h-5" /> You're Going!
+                </button>
+              ) : selectedEvent.currentRegistrations >= selectedEvent.capacity ? (
                 <button disabled className="w-full py-3.5 bg-slate-800 text-slate-500 rounded-xl text-sm font-semibold cursor-not-allowed">
                   Event is Full
                 </button>
